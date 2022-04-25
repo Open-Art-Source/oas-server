@@ -1,0 +1,6 @@
+torchserve
+torch-model-archiver
+torch
+torchvision
+captum
+httpx

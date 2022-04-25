@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<h2>{{ title }}.</h2>
+<h3>{{ message }}</h3>
+
+<h1>File Upload</h1>
+<form method="POST" action="{{ url_for('ai_upload_file') }}" id="my-awesome-dropzone" enctype="multipart/form-data" class="dropzone">
+    <p>artwork json</p>
+    <textarea name="artwork" rows="10" cols="200">
+    {"artwork_id":"something"}
+    </textarea>
+    <button type="submit">Submit data and files!</button>
+    <p>model prediction result</p>
+    <textarea id="upload_result" rows="10" cols="200">
+
+    </textarea>
+</form>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.7.1/min/dropzone.min.js"></script>
+<script type="text/javascript">
+    Dropzone.options.myAwesomeDropzone = { // The camelized version of the ID of the form element
+
+        // The configuration we've talked about above
+        autoProcessQueue: false,
+        uploadMultiple: true,
+        parallelUploads: 100,
+        maxFiles: 100,
+        // The setting up of the dropzone
+        init: function () {
+            var myDropzone = this;
+
+            // First change the button to actually tell Dropzone to process the queue.
+            this.element.querySelector("button[type=submit]").addEventListener("click", function (e) {
+                // Make sure that the form isn't actually being sent.
+                e.preventDefault();
+                e.stopPropagation();
+                myDropzone.headers = { "Authorization": 'Bearer ' + (window.firebaseUsrIdToken || '') }
+                myDropzone.processQueue();
+            });
+            this.on("sending", function (files, xhr, formData) {
+                xhr.setRequestHeader("Authorization", 'Bearer ' + (window.firebaseUsrIdToken || ''));
+            });
+            this.on("success", function (files, response) {
+            });
+            this.on("addedfile", function (file) {
+                var base64 = ''
+                var reader = new FileReader();
+                reader.onload = function (event) {
+                    base64 = event.target.result;
+                    console.log(base64)
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // Listen to the sendingmultiple event. In this case, it's the sendingmultiple event instead
+            // of the sending event because uploadMultiple is set to true.
+            this.on("sendingmultiple", function () {
+                // Gets triggered when the form is actually being sent.
+                // Hide the success button or the complete form.
+            });
+            this.on("successmultiple", function (files, response) {
+                console.log(response);
+                $('#upload_result').html(JSON.stringify(response));
+                // Gets triggered when the files have successfully been sent.
+                // Redirect user or notify of success.
+            });
+            this.on("errormultiple", function (files, response) {
+                // Gets triggered when there was an error sending the files.
+                // Maybe show form again, and notify user of error
+            });
+        }
+
+    }
+</script>
+{% endblock %}

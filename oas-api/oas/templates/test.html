@@ -1,0 +1,371 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<h2>{{ title }}.</h2>
+<h3>{{ message }}</h3>
+<script type="text/javascript">
+    // used for the whole session, i.e. global
+    // wallet connect sessions theirPeerId: { myPeerId, ...}
+    wallets = {
+
+    };
+    // jsonrpc pending request rpcId: { anything }
+    rpc = {
+
+    }
+    function wcEncrypt(dataString, _keyHex, _ivHex) {
+        var key = CryptoJS.enc.Hex.parse(_keyHex);
+        var iv = CryptoJS.enc.Hex.parse(_ivHex);
+        var encrypted = CryptoJS.AES.encrypt(
+            dataString,
+            key,
+            {
+                iv: iv, 
+                padding: CryptoJS.pad.Pkcs7,
+                mode: CryptoJS.mode.CBC
+            });
+        var cipherText = encrypted.ciphertext;
+        var cipherTextHex = cipherText.toString();
+        var tobeSigned = CryptoJS.enc.Hex.parse(cipherTextHex + _ivHex);
+        var hash = CryptoJS.HmacSHA256(tobeSigned, key);
+        var result = {
+            data: cipherTextHex,
+            hmac: hash.toString(),
+            iv: _ivHex,
+        };
+        return result;
+    }
+
+    function wcDecrypt(valueHex, _keyHex, _ivHex) {
+        var key = CryptoJS.enc.Hex.parse(_keyHex);
+        var iv = CryptoJS.enc.Hex.parse(_ivHex);
+        var value = CryptoJS.enc.Hex.parse(valueHex);
+        var decryptedStringHex = CryptoJS.AES.decrypt(
+            {
+                ciphertext: value
+            },
+            key,
+            {
+                iv: iv,
+                mode: CryptoJS.mode.CBC,
+                padding: CryptoJS.pad.Pkcs7
+            });
+        var decryptedUtf8 = decryptedStringHex.toString(CryptoJS.enc.Utf8);
+        //var encryptedHex = wcEncrypt(decryptedUtf8, _keyHex, _ivHex);
+        //console.log(encryptedHex);
+        //console.log(decryptedUtf8);
+        return decryptedUtf8;
+    }
+
+    function wc_sessionRequest(myPeerId, chainId) {
+        return {
+            peerId: myPeerId,
+            peerMeta: {
+                description: "app or site description",
+                url: "https://oas.garyng.com",
+                icons: ["https://www.google.com/logo.png"],
+                name: "App or page name"
+            },
+            chainId: chainId
+        }
+    }
+
+    function create_wc_sessionRequest(sessionId, wc_session_key, myPeerId, chainId, rpcId) {
+        var key = wc_session_key;
+        var keyHex = key.toString();
+        var iv = CryptoJS.lib.WordArray.random(128 / 8);  //128 bit iv
+        var ivHex = iv.toString();
+        var topicId = sessionId;
+        var jsonrpc = {
+            id: rpcId || Date.now(),
+            jsonrpc: "2.0",
+            "method": "wc_sessionRequest",
+            params: [wc_sessionRequest(myPeerId, chainId)],
+        };
+        var encryptedObject = wcEncrypt(JSON.stringify(jsonrpc), keyHex, ivHex);
+        return {
+            pub: wc_pubsub(topicId, encryptedObject, 'pub', true),
+            sub: wc_pubsub(myPeerId, {}, 'sub', true),
+            rpcId: jsonrpc.id,
+        };
+    }
+    function wc_pubsub(topicId, payload, type, isSilent) {
+        return {
+            topic: topicId,
+            type: type,
+            payload: JSON.stringify(payload),
+            silent: isSilent ? true: false,
+        }
+    }
+    function wc_connect(evt) {
+        var url = $('#wc_url').val();
+        var sessionId = uuidv4();
+        var myPeerId = uuidv4();
+        var wc_session_key = CryptoJS.lib.WordArray.random(256 / 8); //256 bit key
+        var chainId = 1;
+        var keyHex = wc_session_key.toString();
+        var rpcId = Date.now(); // key to match returned result
+        var wc_sessionRequest = create_wc_sessionRequest(sessionId, wc_session_key, myPeerId, chainId, rpcId);
+        var wc_version = "1";
+        var appLink = "wc:" + sessionId + "@" + wc_version
+            + "?" + "bridge=" + encodeURIComponent(url)
+            + "&" + "key=" + encodeURIComponent(keyHex);
+
+        var ws = new WebSocket(url.replace(/^http/, 'ws'));
+        var ws_send = function (message) {
+            message = JSON.stringify(message);
+            ws.send(message);
+        };
+        console.log(myPeerId); // my incoming channel
+        console.log(appLink);
+        console.log(wc_sessionRequest);
+        $('#result').empty();
+        $('#result').html(appLink);
+
+        ws.onopen = () => {
+            console.log("wc connection opened");
+            ws_send(wc_sessionRequest.pub);
+            ws_send(wc_sessionRequest.sub);
+            rpc[wc_sessionRequest.rpcId] = {
+                method: 'wc_sessionRequest',
+                state: wc_sessionRequest,
+            }
+        }
+        // listen a message from the server
+        ws.onmessage = (message) => {
+            console.log(message);
+            var payload = JSON.parse(message.data);
+            var wc_payload = payload.payload;
+            var wc_request = JSON.parse(wc_payload);
+            var keyHex = wc_session_key.toString();
+            console.log(wc_request);
+            var jsonrpcString = wcDecrypt(wc_request.data, keyHex, wc_request.iv);
+            console.log(jsonrpcString);
+            var jsonrpc = JSON.parse(jsonrpcString);
+            console.log(jsonrpc);
+            if (jsonrpc.result) {
+                // result
+                var request = rpc[jsonrpc.id];
+                if (request) {
+                    if (request.method === "wc_sessionRequest" && jsonrpc.result.approved) {
+                        wallets[myPeerId] = {
+                            wallet: jsonrpc.result,
+
+                        }
+                    }
+                    delete rpc[jsonrpc.id];
+                }
+            }
+            else if (jsonrpc.params) {
+                // request
+            }
+            else {
+                // what is this
+            }
+        }
+        ws.onerror = (err) => {
+            console.log('unable connect to the server', err)
+        }
+        ws.onclose = () => {
+            console.log('Connection is closed')
+        }
+    }
+</script>
+<script>
+    function wc_sub(evt) {
+        var topic = $('#wc_topic').val();
+        var url = $('#wc_url').val();
+        var key = $('#wc_key').val();
+        var ws = new WebSocket(url);
+        var ws_send = function (message) {
+            message = JSON.stringify(message);
+            ws.send(message);
+        };
+
+        ws.onopen = () => {
+            console.log("wc connection opened");
+            ws_send({
+                topic: topic,
+                type: 'sub',
+                payload: '',
+                silent:true,
+            })
+        }
+        // listen a message from the server
+        ws.onmessage = (message) => {
+            console.log(message);
+            var payload = JSON.parse(message.data);
+            var wc_payload = payload.payload;
+            var wc_request = JSON.parse(wc_payload);
+            console.log(wc_request);
+            wcDecrypt(wc_request.data, key, wc_request.iv)
+        }
+        ws.onerror = (err) => {
+            console.log('unable connect to the server', err)
+        }
+        ws.onclose = () => {
+            console.log('Connection is closed')
+        }
+    }
+    function test(evt) {
+        var url = $('#api_url').val();
+        var body = $('#jsonrpc_request').val();
+        var api_url = "{{ api_host }}" + url;
+        $.ajax(api_url, {
+            /* Set header for the XMLHttpRequest to get data from the web server
+            associated with userIdToken */
+            headers: {
+                'Authorization': 'Bearer ' + (window.firebaseUsrIdToken || ''),
+                'Access-Control-Allow-Origin': '*',
+                'X-Username': 'username',
+                'X-Password': 'secret'
+            },
+            type: "POST",
+            contentType: "application/json; charset=utf-8",
+            data: body,
+        }).then(function (data, textStatus, jqXHR) {
+            var result = typeof data == "object" ? JSON.stringify(data) : data;
+            console.log(result);
+            $('#result').empty();
+            $('#result').html(result);
+        }).fail(function (jqXHR, textStatus, errorThrown) {
+            console.log(jqXHR.responseText);
+            $('#result').empty();
+            $('#result').html(jqXHR.responseText);
+        });
+    }
+</script>
+<div id="logged-out">
+    <h1>Firenotes</h1>
+    <h3>Sign in to access your notebook</h3>
+    <div id="firebaseui-auth-container"></div>
+</div>
+
+<div id="logged-in">
+    <h1>Welcome, <span id="user"></span>!</h1>
+    <h3>jsonrpc you can use</h3>
+    <p>/api/auth {"method":"register", "params": [{"first_name":"john", "last_name" : "doe", "id_token": "firebase_id_token", "is_artist': true}], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"get_artwork", "params": [], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"make_nft_token_uri", "params": ["artwork_id"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"make_nft", "params": ["artwork_id",{"token":"STX", "re_submit": false}}], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"register_nft_token", "params": [{"artwork_id":"", "tx_hash":""}], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"collect_nft", "params": ["artwork_id"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"transfer_nft", "params": ["artwork_id", "token_id", "toWalletAddress"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artist {"method":"nft_owner", "params": ["artwork_id"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/person {"method":"wallet", "params": [], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/person {"method":"get_balance", "params": [], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"list_for_sale", "params": ["artwork_id", "STX", { "amount": 0.1, "active": true, "re_submit": false}], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"check_listing", "params": ["artwork_id", "STX"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"get_listing", "params": [{"active":true, "person_id":"", "artist_id":"", "currency":"STX"}], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"purchase", "params": ["artwork_id", "curency", {"re_submit": false }], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"check_purchase", "params": ["artwork_id", "curency"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"cancel_purchase", "params": ["artwork_id", "curency"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"confirm_purchase", "params": ["artwork_id", {"re_submit": false}], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"check_confirm_purchase", "params": ["artwork_id"], "id": 1, "jsonrpc": "2.0"}</p>
+    <p>/api/artwork {"method":"get_purchases", "params": [{"as_seller":false}], "id": 1, "jsonrpc": "2.0"}</p>
+    <h3>artwork info upload(form post)</h3>
+    <p>/upload_file(artwork = artwork_info_as_json_string, filesX = 1... file content</p>
+</div>
+
+<p>api endpoint (something like /api/artist)</p>
+<input id="api_url" value="/api/artist" />
+<br />
+<p>JSONRPC request(json string) in the form of: </p>
+<br />
+<textarea id="jsonrpc_request" rows="10" cols="100">{{ jsonrpc_request }}</textarea>
+<p>
+    {
+    "jsonrpc": "2.0",
+    "method": "index", "params": [],
+    "id": "2"
+    }
+</p>
+<div id="result">
+
+</div>
+<a href="#" class="btn btn-primary btn-large" onclick="test(this)">Test it &raquo;</a>
+
+<p>wc topic</p>
+<input id="wc_topic" />
+<br />
+<p>wc url</p>
+<input id="wc_url" value="https://bridge.walletconnect.org" />
+<br />
+<p>wc key</p>
+<input id="wc_key" value="" />
+<br />
+<a href="#" class="btn btn-primary btn-large" onclick="wc_connect(this)">wc sub</a>
+
+<h1>File Upload</h1>
+<form method="POST" action="{{ url_for('upload_file') }}" id="my-awesome-dropzone" enctype="multipart/form-data" class="dropzone">
+    <p>artwork json</p>
+    <textarea name="artwork" rows="10" cols="200">
+    {"title":"something", "medium":"oilpaint", "length":15, "date_created": "Tue, 17 Aug 2021 00:00:00 GMT", "listing":{"currency":"USD", "amount":0.1, "active": true} }
+    </textarea>
+    <div class="fallback">
+        <input name="file" type="file" multiple />
+    </div>
+    <p>upload result</p>
+    <textarea id="upload_result" rows="10" cols="200">
+
+    </textarea>
+    <button type="submit">Submit data and files!</button>
+</form>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.7.1/min/dropzone.min.js"></script>
+<script type="text/javascript">
+    Dropzone.options.myAwesomeDropzone = { // The camelized version of the ID of the form element
+
+        // The configuration we've talked about above
+        autoProcessQueue: false,
+        uploadMultiple: true,
+        parallelUploads: 100,
+        maxFiles: 100,
+        // The setting up of the dropzone
+        init: function () {
+            var myDropzone = this;
+
+            // First change the button to actually tell Dropzone to process the queue.
+            this.element.querySelector("button[type=submit]").addEventListener("click", function (e) {
+                // Make sure that the form isn't actually being sent.
+                e.preventDefault();
+                e.stopPropagation();
+                myDropzone.headers = { "Authorization": 'Bearer ' + (window.firebaseUsrIdToken || '') }
+                myDropzone.processQueue();
+            });
+            this.on("sending", function (files, xhr, formData) {
+                xhr.setRequestHeader("Authorization", 'Bearer ' + (window.firebaseUsrIdToken || ''));
+            });
+            this.on("success", function (files, response) {
+            });
+            this.on("addedfile", function (file) {
+                var base64 = ''
+                var reader = new FileReader();
+                reader.onload = function (event) {
+                    base64 = event.target.result;
+                    console.log(base64)
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // Listen to the sendingmultiple event. In this case, it's the sendingmultiple event instead
+            // of the sending event because uploadMultiple is set to true.
+            this.on("sendingmultiple", function () {
+                // Gets triggered when the form is actually being sent.
+                // Hide the success button or the complete form.
+            });
+            this.on("successmultiple", function (files, response) {
+                console.log(response);
+                $('#upload_result').html(JSON.stringify(response));
+                // Gets triggered when the files have successfully been sent.
+                // Redirect user or notify of success.
+            });
+            this.on("errormultiple", function (files, response) {
+                // Gets triggered when there was an error sending the files.
+                // Maybe show form again, and notify user of error
+            });
+        }
+
+    }
+</script>
+{% endblock %}

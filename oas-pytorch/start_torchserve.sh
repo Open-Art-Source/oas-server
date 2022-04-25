@@ -1,0 +1,1 @@
+torchserve --start --ncs --model-store model_store --models image_dissimilarity=image_dissimilarity.mar --foreground

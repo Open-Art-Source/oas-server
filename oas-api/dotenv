@@ -1,0 +1,50 @@
+GOOGLE_CLOUD_PROJECT=
+#for odbc connection
+ODBC_CONNECTION_STRING=
+ODBC_CONNECTION_CREDENTIAL=
+#for sqlalchemy connection
+SQLALCHEMY_URL=
+MARIADB_KEY_LOCATION=
+#for generating custodian wallet keys
+EXTENDED_PRIVKEY=
+EXTENDED_PUBKEY=
+EXTENDED_PATH=
+#for flask client side cookie encryption
+FLASK_SECRET_KEY=
+#for redis server
+REDIS_URL=
+#for api hosting domain
+API_HOST=
+#for ifps storage service(write) in the form of /dns/<domain>/protocol/port/http like /dns/ipfs.infura.io/tcp/5001/https
+IPFS_API_URL=
+#credential in the form of id:password(basic http auth style)
+IPFS_API_CREDENTIAL=
+#for ifps http endpoint(read only)
+IPFS_BASE_URL=http://db:8080/ipfs
+#firebase service account
+FIREBASE_CONFIG_JSON_FILE=
+#web3 rpc
+WEB3_RPC_URL=
+#proxied erc721 - kovan
+NFT_TOKEN_IMPLEMENTATION_ADDRESS=
+#nft token address
+#proxy - kovan
+NFT_TOKEN_ADDRESS=
+#NFT_TOKEN_ADDRESS = _get('NFT_TOKEN_ADDRESS','0xd79205db887a8686718012b38e1d3bfd042a2475'),
+#NFT_TOKEN_ADDRESS = _get('NFT_TOKEN_ADDRESS','0xaFDCC03BCcc8372720c95F8d687096A768D99aB9'),
+#NFT_TOKEN_ADDRESS = _get('NFT_TOKEN_ADDRESS','0x7afb1489acbe992e2b3549097491ec1f9e90b2c3'),
+#Pytorch model server
+#PYTORCH_URL = _get('PYTORCH_URL','http://172.31.20.20/torchserve/predictions/densenet161')
+PYTORCH_URL=
+PYTORCH_MATCH_URL=
+PYTORCH_ID_URL=
+#stacks relay
+OAS_STACKS_RPC_URL=
+OAS_STACKS_NFT_CONTRACT=
+#oas chainlink token, kovan
+OAS_CHAINLINK_TOKEN_ADDRESS=
+#oas chainlink operator factory, kovan using 0x3417 as token
+OAS_CHAINLINK_OPERATOR_FACTORY_ADDRESS=
+#oas chainlink operator, kovan using 0x3417 as token
+OAS_CHAINLINK_OPERATOR_ADDRESS=
+
